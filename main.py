@@ -3,12 +3,18 @@ import asyncio
 import re
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = FastAPI(title="Кот Ученый - Навык Алисы ChatBook")
+
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
@@ -102,13 +108,165 @@ async def ask_yandexgpt(system_text: str, user_text: str, book: str = "", max_to
             result = response.json()
             return result["result"]["alternatives"][0]["message"]["text"].strip()
         except asyncio.TimeoutError:
-            return "Мяу... Я глубоко задумался над страницами книги. Повторите ваш вопрос, пожалуйста."
+            return "Мяу... Я глубоко задумался над страницами книги. Минуточку..."
         except Exception:
             # Мягкий фоллбэк
             b_key = (book or "").strip().lower()
             if b_key in MOCK_QA_ANSWERS:
                 return MOCK_QA_ANSWERS[b_key]
             return "Размышляя над этим фрагментом, важно помнить об историческом контексте и внутреннем конфликте героев."
+
+TEST_UI_HTML = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Кот Учёный — Тестер навыка Алисы (ChatBook)</title>
+<link rel="icon" type="image/png" href="/static/cat-avatar.png">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #ececf1; margin: 0; padding: 20px; display: flex; justify-content: center; min-height: 94vh; box-sizing: border-box; }
+  .phone { width: 100%; max-width: 480px; background: #fff; border-radius: 28px; box-shadow: 0 16px 40px rgba(0,0,0,0.12); overflow: hidden; display: flex; flex-direction: column; height: 90vh; }
+  .header { background: linear-gradient(135deg, #4a3df5, #673ab7); color: #fff; padding: 14px 18px; font-size: 17px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .avatar-header { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+  .header-title { display: flex; flex-direction: column; }
+  .header-name { font-size: 16px; font-weight: 600; }
+  .header-sub { font-size: 12px; opacity: 0.85; }
+  .voice-tag { font-size: 11px; background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 12px; font-weight: 500; }
+  .chat { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; background: #fdfdfd; }
+  .msg-row { display: flex; gap: 10px; align-items: flex-end; width: 100%; }
+  .msg-row.bot { justify-content: flex-start; }
+  .msg-row.user { justify-content: flex-end; }
+  .msg-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+  .msg { max-width: 80%; padding: 12px 16px; border-radius: 20px; font-size: 15px; line-height: 1.45; word-break: break-word; }
+  .bot .msg { background: #f0efff; color: #231d5e; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .user .msg { background: linear-gradient(135deg, #4a3df5, #5e35b1); color: #fff; border-bottom-right-radius: 4px; }
+  .card-banner { width: 100%; border-radius: 14px; margin-bottom: 10px; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .tts-badge { font-size: 11px; color: #726e9c; margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(74,61,245,0.06); padding: 6px 8px; border-radius: 8px; border-left: 3px solid #4a3df5; }
+  .buttons-bar { padding: 10px 16px; display: flex; gap: 8px; flex-wrap: wrap; background: #fafafa; border-top: 1px solid #eee; max-height: 120px; overflow-y: auto; }
+  .btn-pill { background: #fff; border: 1.5px solid #4a3df5; color: #4a3df5; border-radius: 20px; padding: 7px 15px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .btn-pill:hover { background: #4a3df5; color: #fff; transform: translateY(-1px); }
+  .input-bar { padding: 12px 16px; display: flex; gap: 10px; background: #fff; border-top: 1px solid #eee; }
+  .input-bar input { flex: 1; padding: 11px 16px; border: 1.5px solid #e0e0e0; border-radius: 22px; font-size: 15px; outline: none; transition: border-color 0.2s; }
+  .input-bar input:focus { border-color: #4a3df5; }
+  .input-bar button { background: linear-gradient(135deg, #4a3df5, #673ab7); color: #fff; border: none; border-radius: 22px; padding: 10px 20px; font-weight: 600; cursor: pointer; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="header">
+    <div class="header-left">
+      <img src="/static/cat-avatar.png" alt="Кот Учёный" class="avatar-header">
+      <div class="header-title">
+        <span class="header-name">Кот Учёный</span>
+        <span class="header-sub">ChatBook • Навык Алисы</span>
+      </div>
+    </div>
+    <span class="voice-tag">Голос: ermil ♂</span>
+  </div>
+  <div class="chat" id="chat"></div>
+  <div class="buttons-bar" id="buttons"></div>
+  <form class="input-bar" id="form" onsubmit="sendText(event)">
+    <input type="text" id="userInput" placeholder="Спросите Кота Учёного о книге..." autocomplete="off">
+    <button type="submit">Отправить</button>
+  </form>
+</div>
+<script>
+let sessionState = {};
+let userState = {};
+let isNew = true;
+let isFirstMsg = true;
+
+async function sendRequest(text) {
+  const chat = document.getElementById("chat");
+  if (text) {
+    const userRow = document.createElement("div");
+    userRow.className = "msg-row user";
+    userRow.innerHTML = `<div class="msg">${escapeHtml(text)}</div>`;
+    chat.appendChild(userRow);
+    chat.scrollTop = chat.scrollHeight;
+  }
+  
+  const payload = {
+    request: { original_utterance: text, command: text ? text.toLowerCase() : "" },
+    session: { new: isNew, session_id: "web_test_session", user_id: "web_test_user" },
+    state: { session: sessionState, user: userState },
+    version: "1.0"
+  };
+  isNew = false;
+  
+  try {
+    const res = await fetch("/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    const resp = data.response || {};
+    
+    sessionState = data.session_state || {};
+    userState = data.user_state_update || {};
+    
+    const botRow = document.createElement("div");
+    botRow.className = "msg-row bot";
+    
+    let innerContent = "";
+    if (isFirstMsg) {
+      innerContent += `<img src="/static/cat-card.png" class="card-banner" alt="Кот Учёный на страницах книги">`;
+      isFirstMsg = false;
+    }
+    innerContent += `<div>${escapeHtml(resp.text || "")}</div>`;
+    if (resp.tts) {
+      innerContent += `<div class="tts-badge"><b>🔊 TTS:</b> ${escapeHtml(resp.tts)}</div>`;
+    }
+    
+    botRow.innerHTML = `
+      <img src="/static/cat-avatar.png" class="msg-avatar" alt="Кот">
+      <div class="msg">${innerContent}</div>
+    `;
+    chat.appendChild(botRow);
+    chat.scrollTop = chat.scrollHeight;
+    
+    // Рендер кнопок
+    const btnContainer = document.getElementById("buttons");
+    btnContainer.innerHTML = "";
+    const buttons = resp.buttons || [];
+    buttons.forEach(b => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-pill";
+      btn.innerText = b.title;
+      btn.onclick = () => sendRequest(b.title);
+      btnContainer.appendChild(btn);
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function sendText(e) {
+  e.preventDefault();
+  const input = document.getElementById("userInput");
+  const val = input.value.trim();
+  if (val) {
+    input.value = "";
+    sendRequest(val);
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+window.onload = () => sendRequest("");
+</script>
+</body>
+</html>"""
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/test", response_class=HTMLResponse)
+async def test_page():
+    return HTMLResponse(content=TEST_UI_HTML)
 
 @app.post("/webhook")
 async def alice_webhook(request: Request):
