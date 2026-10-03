@@ -263,6 +263,9 @@ window.onload = () => sendRequest("");
 </body>
 </html>"""
 
+# Локальное серверное хранилище сессий (надежный fallback, если клиент/Яндекс не передает state)
+SERVER_SESSIONS: dict = {}
+
 @app.get("/", response_class=HTMLResponse)
 @app.get("/test", response_class=HTMLResponse)
 async def test_page():
@@ -282,11 +285,21 @@ async def alice_webhook(request: Request):
         return {"response": {"text": "pong", "end_session": False}, "version": "1.0"}
         
     session = req.get("session", {})
+    session_id = session.get("session_id", "default_session")
     is_new_session = session.get("new", False)
     
     state = req.get("state", {})
-    session_state = state.get("session", {})
+    # Если клиент не прислал state.session, берем из серверного кэша по session_id
+    raw_session_state = state.get("session", {})
+    if is_new_session:
+        session_state = {}
+        SERVER_SESSIONS.pop(session_id, None)
+    else:
+        session_state = raw_session_state if raw_session_state else SERVER_SESSIONS.get(session_id, {})
+    
     user_state = state.get("user", {})
+    
+    print(f"DEBUG REQ: new={is_new_session}, sid='{session_id[:8]}', cmd='{command_lower}', state={session_state}")
     
     new_session_state = session_state.copy()
     new_user_state = user_state.copy()
@@ -351,8 +364,23 @@ async def alice_webhook(request: Request):
                 "version": "1.0"
             }
             
+    # Быстрый перехват названия книги (если пользователь в любой момент называет книгу)
+    book_override = normalize_book(command_lower)
+    if book_override and session_state.get("step") != "QA_LOOP" and session_state.get("step") != "SOCRATIC_LOOP":
+        new_session_state["book"] = book_override
+        new_session_state["step"] = "CHOOSE_MODE"
+        text = (
+            f"Прекрасно, открываем «{book_override}». "
+            "Мы можем разобрать любые ваши вопросы напрямую (режим «Вопрос-ответ») "
+            "или провести Сократический диалог, где я буду задавать наводящие вопросы к сути. "
+            "Что вам ближе?"
+        )
+        buttons = [
+            {"title": "Вопрос-ответ", "hide": True},
+            {"title": "Сократический диалог", "hide": True}
+        ]
     # 4. Меню оплаты и подписки
-    if session_state.get("step") == "PAYMENT_MENU":
+    elif session_state.get("step") == "PAYMENT_MENU":
         if "подписк" in command_lower or "оформить" in command_lower or "купить" in command_lower:
             text = (
                 "Подписка «Чатбук Плюс» открывает безлимитный доступ ко всем книгам школьной и классической программы, "
@@ -473,6 +501,9 @@ async def alice_webhook(request: Request):
         text = text[:1020] + "..."
 
     final_tts = tts_custom or format_tts(text)
+
+    # Сохраняем в локальный серверный кэш
+    SERVER_SESSIONS[session_id] = new_session_state
 
     return {
         "response": {
