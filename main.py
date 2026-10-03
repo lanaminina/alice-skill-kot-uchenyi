@@ -18,7 +18,7 @@ if os.path.exists(STATIC_DIR):
 
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
-VOICE_SPEAKER = os.getenv("VOICE_SPEAKER", "ermil")  # Мужской голос: ermil, zahar
+VOICE_SPEAKER = os.getenv("VOICE_SPEAKER", "erkanyavas")  # Голос навыка (выбран в Диалогах: erkanyavas - Эркан Явас)
 
 BOOKS = ["Гранатовый браслет", "Вишневый сад", "Гроза"]
 FREE_LIMIT = int(os.getenv("FREE_LIMIT", "5"))
@@ -64,14 +64,16 @@ def normalize_book(query: str):
     return None
 
 def format_tts(text: str, speaker: str = VOICE_SPEAKER) -> str:
-    """Форматирование реплики для синтезатора Яндекс Диалогов с мужским голосом."""
+    """Форматирование реплики для синтезатора Яндекс Диалогов с голосом навыка."""
     # Убираем markdown форматирование
     clean = re.sub(r"[*_#`]", "", text)
     # Добавляем паузы после точек и восклицательных знаков для более живой речи
     clean = clean.replace(". ", ". silence<[300]> ")
     clean = clean.replace("! ", "! silence<[250]> ")
     clean = clean.replace("? ", "? silence<[300]> ")
-    return f'<speaker voice="{speaker}">{clean}'
+    if speaker and speaker.lower() not in ["", "none", "default"]:
+        return f'<speaker voice="{speaker}">{clean}'
+    return clean
 
 async def ask_yandexgpt(system_text: str, user_text: str, book: str = "", max_tokens: int = 150) -> str:
     """Асинхронный вызов YandexGPT API с быстрым fallback при отсутствии ключей."""
@@ -162,7 +164,7 @@ TEST_UI_HTML = """<!DOCTYPE html>
         <span class="header-sub">ChatBook • Навык Алисы</span>
       </div>
     </div>
-    <span class="voice-tag">Голос: ermil ♂</span>
+    <span class="voice-tag">Голос: Эркан Явас ♂</span>
   </div>
   <div class="chat" id="chat"></div>
   <div class="buttons-bar" id="buttons"></div>
