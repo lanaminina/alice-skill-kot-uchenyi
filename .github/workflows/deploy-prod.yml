@@ -1,0 +1,65 @@
+name: Deploy prod
+
+on:
+  push:
+    tags: ["prod-*"]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type PROMOTE to deploy this commit to prod (cat.chatbook.pro)'
+        required: true
+
+concurrency:
+  group: kot-prod
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: |
+          python -m pip install -q -r requirements.txt
+          python -m pip install -q httpx
+      - name: Smoke test
+        env:
+          VOICE_SPEAKER: erkanyavas
+          FREE_LIMIT: "5"
+          SOCRATIC_MAX_STEPS: "3"
+        run: python smoke_test.py
+
+  deploy:
+    needs: smoke
+    runs-on: ubuntu-latest
+    environment: production
+    if: >
+      startsWith(github.ref, 'refs/tags/prod-') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.confirm == 'PROMOTE')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pack release
+        run: |
+          tar -czf /tmp/kot-release.tgz \
+            --exclude=.git --exclude=.venv --exclude=__pycache__ \
+            main.py requirements.txt smoke_test.py static deploy
+      - name: Deploy to msk01 prod
+        env:
+          SSH_KEY: ${{ secrets.MSK01_KOT_DEPLOY_KEY }}
+          SSH_HOST: ${{ secrets.MSK01_HOST }}
+          SSH_USER: ${{ secrets.MSK01_KOT_DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          test -n "${SSH_KEY:-}"
+          test -n "${SSH_HOST:-}"
+          USER="${SSH_USER:-kot-deploy}"
+          install -m 600 /dev/null /tmp/kot_deploy_key
+          printf '%s\n' "$SSH_KEY" > /tmp/kot_deploy_key
+          RELEASE_ID="${GITHUB_SHA}"
+          scp -i /tmp/kot_deploy_key -o StrictHostKeyChecking=yes \
+            /tmp/kot-release.tgz "${USER}@${SSH_HOST}:/tmp/kot-release.tgz"
+          ssh -i /tmp/kot_deploy_key -o StrictHostKeyChecking=yes "${USER}@${SSH_HOST}" \
+            "sudo /opt/alice-skill-kot-uchenyi/deploy/deploy.sh prod /tmp/kot-release.tgz ${RELEASE_ID}"

@@ -1,10 +1,12 @@
 import asyncio
+import os
 import sys
 from httpx import AsyncClient, ASGITransport
-from main import app
+from main import app, VOICE_SPEAKER
 
 async def run_tests():
     transport = ASGITransport(app=app)
+    voice_tag = f'<speaker voice="{VOICE_SPEAKER}">'
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # 1. Healthcheck / Ping
         res = await ac.post("/webhook", json={"request": {"original_utterance": "ping"}})
@@ -21,10 +23,10 @@ async def run_tests():
         d_new = res_new.json()
         assert res_new.status_code == 200
         assert "Кот Учёный" in d_new["response"]["text"]
-        assert '<speaker voice="ermil">' in d_new["response"]["tts"]
+        assert voice_tag in d_new["response"]["tts"]
         assert len(d_new["response"]["buttons"]) == 3
         assert d_new["session_state"]["step"] == "CHOOSE_BOOK"
-        print("[OK] Start session -> Кот Ученый с голосом ermil и выбором 3 книг")
+        print(f"[OK] Start session -> Кот Ученый с голосом {VOICE_SPEAKER} и выбором 3 книг")
 
         # 3. Выбор книги
         res_book = await ac.post("/webhook", json={
@@ -55,8 +57,8 @@ async def run_tests():
         })
         d_qa = res_qa.json()
         assert len(d_qa["response"]["text"]) > 20
-        assert '<speaker voice="ermil">' in d_qa["response"]["tts"]
-        print("[OK] Q&A response -> получен филологический ответ с мужским TTS")
+        assert voice_tag in d_qa["response"]["tts"]
+        print("[OK] Q&A response -> получен филологический ответ с TTS")
 
     print("\n=== ВСЕ ТЕСТЫ ВЕБХУКА УСПЕШНО ПРОЙДЕНЫ ===")
 

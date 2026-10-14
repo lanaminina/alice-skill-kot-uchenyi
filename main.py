@@ -16,12 +16,15 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
-YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
+LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "http://127.0.0.1:8318/v1/chat/completions")
+LLM_GATEWAY_KEY = os.getenv("LLM_GATEWAY_KEY", "cbk-QUBQrtxNOA_ta3i0E3IjLmPFZ9TWdEQf")
+LLM_MODEL = os.getenv("LLM_MODEL", "yandexgpt-5.1")
 VOICE_SPEAKER = os.getenv("VOICE_SPEAKER", "erkanyavas")  # Голос навыка (выбран в Диалогах: erkanyavas - Эркан Явас)
 
 BOOKS = ["Гранатовый браслет", "Вишневый сад", "Гроза"]
 FREE_LIMIT = int(os.getenv("FREE_LIMIT", "5"))
+# 0 = без лимита (удобно для staging / полного теста сократического цикла)
+SOCRATIC_MAX_STEPS = int(os.getenv("SOCRATIC_MAX_STEPS", "3"))
 
 # Системные промпты на основе SKILL.md "Кота Ученого"
 SYSTEM_PROMPT_BASE = (
@@ -75,43 +78,45 @@ def format_tts(text: str, speaker: str = VOICE_SPEAKER) -> str:
         return f'<speaker voice="{speaker}">{clean}'
     return clean
 
-async def ask_yandexgpt(system_text: str, user_text: str, book: str = "", max_tokens: int = 150) -> str:
-    """Асинхронный вызов YandexGPT API с быстрым fallback при отсутствии ключей."""
-    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
-        # Режим демонстрации / мок-ответов
+async def ask_llm(system_text: str, user_text: str, book: str = "", max_tokens: int = 150) -> str:
+    """Асинхронный вызов DeepSeek V4 Flash через локальный Yandex LLM Gateway на msk01."""
+    if not LLM_GATEWAY_KEY:
         b_key = (book or "").strip().lower()
         if b_key in MOCK_QA_ANSWERS:
             return MOCK_QA_ANSWERS[b_key]
         return "В этом произведении каждый образ раскрывает вечные темы человеческой души, долга и искреннего чувства."
         
-    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
     headers = {
-        "Authorization": f"Api-Key {YANDEX_API_KEY}",
-        "x-folder-id": YANDEX_FOLDER_ID
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LLM_GATEWAY_KEY}"
     }
     payload = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
-        "completionOptions": {
-            "stream": False,
-            "temperature": 0.4,
-            "maxTokens": str(max_tokens)
-        },
+        "model": LLM_MODEL,
         "messages": [
-            {"role": "system", "text": system_text},
-            {"role": "user", "text": user_text}
-        ]
+            {"role": "system", "content": system_text},
+            {"role": "user", "content": user_text}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.4
     }
     
     async with httpx.AsyncClient() as client:
         try:
             # Таймаут 3.5 сек для укладки в лимит 4.5 сек платформы Алисы
-            response = await client.post(url, headers=headers, json=payload, timeout=3.5)
+            response = await client.post(LLM_GATEWAY_URL, headers=headers, json=payload, timeout=3.5)
             response.raise_for_status()
             result = response.json()
-            return result["result"]["alternatives"][0]["message"]["text"].strip()
+            msg = result["choices"][0]["message"]
+            content = msg.get("content") or msg.get("reasoning_content") or ""
+            # Очистка от возможных тегов reasoning
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            if not content:
+                raise ValueError("Empty LLM response content")
+            return content
         except asyncio.TimeoutError:
             return "Мяу... Я глубоко задумался над страницами книги. Минуточку..."
-        except Exception:
+        except Exception as e:
+            print(f"LLM Gateway error: {e}")
             # Мягкий фоллбэк
             b_key = (book or "").strip().lower()
             if b_key in MOCK_QA_ANSWERS:
@@ -466,7 +471,7 @@ async def alice_webhook(request: Request):
         book = session_state.get("book", "")
         sys_prompt = PROMPT_QA.format(book=book)
         
-        answer = await ask_yandexgpt(sys_prompt, original_utterance, book=book)
+        answer = await ask_llm(sys_prompt, original_utterance, book=book)
         text = answer
         new_user_state["daily_requests"] = current_requests + 1
         buttons = [
@@ -483,12 +488,12 @@ async def alice_webhook(request: Request):
         current_step = session_state.get("socratic_step", 1)
         sys_prompt = PROMPT_SOCRATIC.format(book=book, step=current_step)
         
-        answer = await ask_yandexgpt(sys_prompt, original_utterance, book=book)
+        answer = await ask_llm(sys_prompt, original_utterance, book=book)
         text = answer
         new_user_state["daily_requests"] = current_requests + 1
         new_session_state["socratic_step"] = current_step + 1
         
-        if new_session_state["socratic_step"] > 3:
+        if SOCRATIC_MAX_STEPS > 0 and new_session_state["socratic_step"] > SOCRATIC_MAX_STEPS:
             text += "\n\nМы завершили базовый цикл размышления над произведением. Вы продемонстрировали зрелый взгляд на мотивы героев!"
             buttons = [{"title": "Разобрать другую книгу", "hide": True}]
             new_session_state["step"] = "CHOOSE_BOOK"
