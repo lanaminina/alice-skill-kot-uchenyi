@@ -1,0 +1,16 @@
+[Unit]
+Description=Cat Kot Uchenyi - Alice Voice Skill (prod)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/alice-skill-kot-uchenyi/prod
+EnvironmentFile=/opt/alice-skill-kot-uchenyi/prod.env
+ExecStart=/opt/alice-skill-kot-uchenyi/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8020
+Restart=on-failure
+RestartSec=5
+User=root
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

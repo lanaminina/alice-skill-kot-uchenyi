@@ -1,0 +1,7 @@
+# Install: /etc/sudoers.d/kot-deploy (visudo -cf)
+# Deploy user may only restart Kot units and run the deploy script.
+kot-deploy ALL=(root) NOPASSWD: /bin/systemctl restart cat-kot-uchenyi.service
+kot-deploy ALL=(root) NOPASSWD: /bin/systemctl restart cat-kot-uchenyi-staging.service
+kot-deploy ALL=(root) NOPASSWD: /bin/systemctl is-active cat-kot-uchenyi.service
+kot-deploy ALL=(root) NOPASSWD: /bin/systemctl is-active cat-kot-uchenyi-staging.service
+kot-deploy ALL=(root) NOPASSWD: /opt/alice-skill-kot-uchenyi/deploy/deploy.sh *
